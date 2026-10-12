@@ -48,13 +48,30 @@ ul.chk{list-style:none;margin:0;padding:0}
 .other-h .dot{width:30px;height:30px;font-size:.85rem}
 .row{display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:4px 0}
 .note{color:var(--mute);font-size:.9rem;margin:2px 0 0}
+.conn{font-size:.85rem;color:var(--mute);margin:6px 0 0}
+.conn.error{color:var(--warn)}
+.notein{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);margin-top:12px}
 </style>
 </head>
 <body>
 <main id="app"></main>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  doc, setDoc, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
 /* ============ EDIT THIS SECTION ============ */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAm4XkZxk9lG8W3u2OrbKPK9da5vug5k14",
+  authDomain: "flatcleaning-526d8.firebaseapp.com",
+  projectId: "flatcleaning-526d8",
+  storageBucket: "flatcleaning-526d8.firebasestorage.app",
+  messagingSenderId: "525806562291",
+  appId: "1:525806562291:web:c6056c6c0308d846bf4086"
+};
 
 // Monday that is "Week 1" of the rotation (YYYY-MM-DD, Sydney time).
 const WEEK1_START = "2026-10-12";
@@ -90,35 +107,19 @@ const ROTATION = [
   { Emily: ["bins"],            Ella: [],                    Daniel: ["downstairs_mop"] }
 ];
 
-// Status shown for OTHER people (edit by hand). One entry per job key.
-// status: "Not started" | "In progress" | "Done"
-const OTHER_STATUS = {
-  Emily:  { bathroom: ["Done", "Lorem ipsum dolor sit amet."],
-            downstairs: ["In progress", "Consectetur adipiscing elit."],
-            downstairs_mop: ["Not started", "Sed do eiusmod tempor."],
-            toilet: ["In progress", "Ut enim ad minim veniam."],
-            bins: ["Not started", "Duis aute irure dolor."] },
-  Ella:   { bathroom: ["In progress", "Lorem ipsum dolor sit amet."],
-            downstairs: ["Done", "Consectetur adipiscing elit."],
-            downstairs_mop: ["Not started", "Sed do eiusmod tempor."],
-            toilet: ["Not started", "Ut enim ad minim veniam."],
-            bins: ["Done", "Duis aute irure dolor."] },
-  Daniel: { bathroom: ["Not started", "Lorem ipsum dolor sit amet."],
-            downstairs: ["In progress", "Consectetur adipiscing elit."],
-            downstairs_mop: ["Done", "Sed do eiusmod tempor."],
-            toilet: ["Done", "Ut enim ad minim veniam."],
-            bins: ["In progress", "Duis aute irure dolor."] }
-};
-
 /* ============ END EDIT SECTION ============ */
 
 const DAY = 864e5;
 const $app = document.getElementById("app");
 let user = safeGet("rota:user");
 let view = "this";
+let data = {};            // "YYYY-MM-DD_Name" -> { checks:{}, note:"" }
+let conn = "connecting";  // connecting | live | offline | error
+let db = null, unsub = null, lastWeek = null;
 
 function safeGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
 function safeSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 // Today's calendar date in Sydney, as a UTC-midnight timestamp (avoids DST problems).
 function sydneyToday(){
@@ -136,49 +137,87 @@ function weekInfo(offset){
 }
 function fmt(ts){ return new Date(ts).toLocaleDateString("en-AU",{timeZone:"UTC",day:"numeric",month:"short"}); }
 
-function loadChecks(){ try { return JSON.parse(safeGet("rota:checks")||"{}"); } catch(e){ return {}; } }
-function saveChecks(c){ safeSet("rota:checks", JSON.stringify(c)); }
+/* ---------- Firebase ---------- */
+function getEntry(wk, person){ return data[`${wk.key}_${person}`] || { checks:{}, note:"" }; }
 
+function subscribe(){
+  if (!db) return;
+  if (unsub) unsub();
+  const keys = [weekInfo(0).key, weekInfo(1).key];
+  lastWeek = keys[0];
+  unsub = onSnapshot(query(collection(db,"status"), where("week","in",keys)), snap => {
+    snap.forEach(d => { data[d.id] = d.data(); });
+    conn = snap.metadata.fromCache ? "offline" : "live";
+    render();
+  }, err => { console.error(err); conn = "error"; render(); });
+}
+
+async function write(wk, patch){
+  const id = `${wk.key}_${user}`;
+  const cur = getEntry(wk, user);
+  data[id] = { ...cur, ...patch, checks: { ...cur.checks, ...(patch.checks||{}) } };
+  render();
+  if (!db) return;
+  try { await setDoc(doc(db,"status",id), { week: wk.key, person: user, ...patch }, { merge:true }); }
+  catch(e){ console.error(e); conn = "error"; render(); }
+}
+
+try {
+  const app = initializeApp(firebaseConfig);
+  try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+  catch(e){ db = getFirestore(app); }
+  signInAnonymously(getAuth(app)).then(subscribe).catch(e => { console.error(e); conn = "error"; render(); });
+} catch(e){ console.error(e); conn = "error"; }
+
+/* ---------- UI ---------- */
 function pill(status){
   const cls = status==="Done" ? "done" : status==="In progress" ? "prog" : "";
   return `<span class="pill ${cls}">${status}</span>`;
 }
+function jobCount(entry, jobKey){ return JOBS[jobKey].items.filter((_,i) => entry.checks[`${jobKey}_${i}`]).length; }
 function statusFor(count,total){ return count===0 ? "Not started" : count===total ? "Done" : "In progress"; }
-function initial(n){ return n[0]; }
 
 function renderPicker(){
   $app.innerHTML = `<h1>Who are you?</h1><p class="sub">Pick your name to see your jobs for the week.</p>
   <div class="picker">${Object.keys(PEOPLE).map(n =>
-    `<button class="who" data-user="${n}"><span class="dot" style="background:${PEOPLE[n].color}">${initial(n)}</span>${n}</button>`).join("")}</div>`;
+    `<button class="who" data-user="${n}"><span class="dot" style="background:${PEOPLE[n].color}">${n[0]}</span>${n}</button>`).join("")}</div>`;
   $app.querySelectorAll("[data-user]").forEach(b => b.onclick = () => { user = b.dataset.user; safeSet("rota:user", user); view="this"; render(); });
 }
 
-function renderJob(jobKey, wk, checks){
+function renderJob(jobKey, entry){
   const job = JOBS[jobKey];
-  const done = job.items.map((_,i) => !!checks[`${wk.key}|${user}|${jobKey}|${i}`]);
-  const count = done.filter(Boolean).length;
+  const count = jobCount(entry, jobKey);
   const pct = Math.round(count / job.items.length * 100);
   return `<section class="job"><div class="job-h"><div><h3>${job.name}</h3>${job.when?`<p class="when">${job.when}</p>`:""}</div>${pill(statusFor(count,job.items.length))}</div>
   <div class="meter" aria-hidden="true"><i style="width:${pct}%"></i></div>
-  <ul class="chk">${job.items.map((t,i)=>`<li><label><input type="checkbox" data-k="${wk.key}|${user}|${jobKey}|${i}" ${done[i]?"checked":""}><span>${t}</span></label></li>`).join("")}</ul></section>`;
+  <ul class="chk">${job.items.map((t,i)=>`<li><label><input type="checkbox" data-job="${jobKey}" data-i="${i}" ${entry.checks[`${jobKey}_${i}`]?"checked":""}><span>${t}</span></label></li>`).join("")}</ul></section>`;
 }
 
-function renderOthers(wk, isCurrent){
+function renderOthers(wk){
   return Object.keys(PEOPLE).filter(n => n!==user).map(n => {
     const jobs = ROTATION[wk.idx][n];
+    const entry = getEntry(wk, n);
     const rows = jobs.length ? jobs.map(j => {
-      const s = (OTHER_STATUS[n] && OTHER_STATUS[n][j]) || ["Not started",""];
-      return `<div><div class="row"><span>${JOBS[j].name}</span>${isCurrent ? pill(s[0]) : ""}</div>${isCurrent && s[1] ? `<p class="note">${s[1]}</p>`:""}</div>`;
+      const c = jobCount(entry, j);
+      return `<div class="row"><span>${JOBS[j].name}</span>${pill(statusFor(c, JOBS[j].items.length))}</div>`;
     }).join("") : `<p class="note">Day off</p>`;
-    return `<div class="other"><div class="other-h"><span class="dot" style="background:${PEOPLE[n].color}">${initial(n)}</span><b>${n}</b></div>${rows}</div>`;
+    return `<div class="other"><div class="other-h"><span class="dot" style="background:${PEOPLE[n].color}">${n[0]}</span><b>${n}</b></div>${rows}${entry.note?`<p class="note">${esc(entry.note)}</p>`:""}</div>`;
   }).join("");
 }
 
+const CONN_TEXT = {
+  connecting: "Connecting…",
+  live: "Live: ticks and notes sync with everyone.",
+  offline: "Offline: changes will sync when you reconnect.",
+  error: "Couldn't sync. Check your connection, or the Firebase setup."
+};
+
 function render(){
   if (!user || !PEOPLE[user]) return renderPicker();
+  if (document.activeElement && document.activeElement.id === "note") return;
   const isCurrent = view === "this";
   const wk = weekInfo(isCurrent ? 0 : 1);
-  const checks = loadChecks();
+  const entry = getEntry(wk, user);
   const mine = ROTATION[wk.idx][user];
   $app.innerHTML = `
   <div class="bar"><h1>Hi ${user}</h1><button class="link" id="switch">Switch user</button></div>
@@ -187,22 +226,23 @@ function render(){
     <button role="tab" id="t-next" aria-selected="${!isCurrent}">Next week</button>
   </div>
   <p class="week">Week ${wk.idx+1} of ${ROTATION.length}, ${fmt(wk.monday)} to ${fmt(wk.monday+6*DAY)}</p>
+  <p class="conn ${conn==="error"?"error":""}">${CONN_TEXT[conn]}</p>
   <h2>Your jobs</h2>
-  ${mine.length ? mine.map(j => renderJob(j, wk, checks)).join("") : `<div class="off">No jobs this week. Enjoy the day off.</div>`}
+  ${mine.length ? mine.map(j => renderJob(j, entry)).join("") : `<div class="off">No jobs this week. Enjoy the day off.</div>`}
+  <input class="notein" id="note" maxlength="140" placeholder="Add a note for the others" aria-label="Note for the others" value="${esc(entry.note||"")}">
   <h2>Everyone else</h2>
-  ${renderOthers(wk, isCurrent)}`;
+  ${renderOthers(wk)}`;
   document.getElementById("switch").onclick = () => { user=null; try{localStorage.removeItem("rota:user");}catch(e){} render(); };
   document.getElementById("t-this").onclick = () => { view="this"; render(); };
   document.getElementById("t-next").onclick = () => { view="next"; render(); };
-  $app.querySelectorAll("input[data-k]").forEach(cb => cb.onchange = () => {
-    const c = loadChecks(); if (cb.checked) c[cb.dataset.k]=1; else delete c[cb.dataset.k]; saveChecks(c); render();
-  });
+  document.getElementById("note").onchange = e => write(wk, { note: e.target.value.trim() });
+  $app.querySelectorAll("input[data-job]").forEach(cb => cb.onchange = () =>
+    write(wk, { checks: { [`${cb.dataset.job}_${cb.dataset.i}`]: cb.checked } }));
 }
 
 render();
 // Roll over to the new week automatically if the page is left open past Monday 12am Sydney time.
-setInterval(() => { const k = weekInfo(0).key; if (window.__wk && window.__wk !== k) render(); window.__wk = k; }, 60000);
-window.__wk = weekInfo(0).key;
+setInterval(() => { const k = weekInfo(0).key; if (lastWeek && lastWeek !== k) subscribe(); render(); }, 60000);
 </script>
 </body>
 </html>
