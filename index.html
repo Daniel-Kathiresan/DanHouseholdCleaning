@@ -115,7 +115,7 @@ let user = safeGet("rota:user");
 let view = "this";
 let data = {};            // "YYYY-MM-DD_Name" -> { checks:{}, note:"" }
 let conn = "connecting";  // connecting | live | offline | error
-let db = null, unsub = null, lastWeek = null;
+let db = null, unsub = null, lastWeek = null, lastErr = "";
 
 function safeGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
 function safeSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
@@ -149,7 +149,7 @@ function subscribe(){
     snap.forEach(d => { data[d.id] = d.data(); });
     conn = snap.metadata.fromCache ? "offline" : "live";
     render();
-  }, err => { console.error(err); conn = "error"; render(); });
+  }, err => { console.error(err); lastErr = err.code || err.message; conn = "error"; render(); });
 }
 
 async function write(wk, patch){
@@ -159,15 +159,15 @@ async function write(wk, patch){
   render();
   if (!db) return;
   try { await setDoc(doc(db,"status",id), { week: wk.key, person: user, ...patch }, { merge:true }); }
-  catch(e){ console.error(e); conn = "error"; render(); }
+  catch(e){ console.error(e); lastErr = e.code || e.message; conn = "error"; render(); }
 }
 
 try {
   const app = initializeApp(firebaseConfig);
   try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
   catch(e){ db = getFirestore(app); }
-  signInAnonymously(getAuth(app)).then(subscribe).catch(e => { console.error(e); conn = "error"; render(); });
-} catch(e){ console.error(e); conn = "error"; }
+  signInAnonymously(getAuth(app)).then(subscribe).catch(e => { console.error(e); lastErr = e.code || e.message; conn = "error"; render(); });
+} catch(e){ console.error(e); lastErr = e.code || e.message; conn = "error"; }
 
 /* ---------- UI ---------- */
 function pill(status){
@@ -226,7 +226,7 @@ function render(){
     <button role="tab" id="t-next" aria-selected="${!isCurrent}">Next week</button>
   </div>
   <p class="week">Week ${wk.idx+1} of ${ROTATION.length}, ${fmt(wk.monday)} to ${fmt(wk.monday+6*DAY)}</p>
-  <p class="conn ${conn==="error"?"error":""}">${CONN_TEXT[conn]}</p>
+  <p class="conn ${conn==="error"?"error":""}">${CONN_TEXT[conn]}${conn==="error" && lastErr ? ` (${esc(lastErr)})` : ""}</p>
   <h2>Your jobs</h2>
   ${mine.length ? mine.map(j => renderJob(j, entry)).join("") : `<div class="off">No jobs this week. Enjoy the day off.</div>`}
   <input class="notein" id="note" maxlength="140" placeholder="Add a note for the others" aria-label="Note for the others" value="${esc(entry.note||"")}">
