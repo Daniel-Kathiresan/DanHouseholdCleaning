@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Household cleaning rota</title>
+<style>
+:root{--bg:#f2f5f7;--card:#fff;--ink:#1b2430;--mute:#5d6b7a;--line:#dde3e9;--ok:#0f766e;--okbg:#d9f2ee;--warn:#9a5b00;--warnbg:#fdecc8;--idle:#e6ebf0;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161d;--card:#18212b;--ink:#e8eef4;--mute:#97a6b5;--line:#27323e;--ok:#4fd1c0;--okbg:#14352f;--warn:#f3b95f;--warnbg:#3b2d10;--idle:#232e3a}}
+:root[data-theme="dark"]{--bg:#10161d;--card:#18212b;--ink:#e8eef4;--mute:#97a6b5;--line:#27323e;--ok:#4fd1c0;--okbg:#14352f;--warn:#f3b95f;--warnbg:#3b2d10;--idle:#232e3a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Avenir Next","Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.9rem;line-height:1.15;margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:1.15rem;margin:28px 0 10px}
+.sub{color:var(--mute);margin:0 0 20px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+.picker{display:grid;gap:12px;margin-top:20px}
+.who{display:flex;align-items:center;gap:14px;width:100%;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--card);font-size:1.2rem;font-weight:600;text-align:left}
+.who:hover{border-color:var(--ok)}
+.dot{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;flex:none}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+.link{background:none;border:0;color:var(--ok);font-weight:600;padding:8px 0}
+.tabs{display:flex;gap:6px;background:var(--idle);padding:4px;border-radius:12px;margin-bottom:6px}
+.tabs button{flex:1;border:0;background:none;padding:10px;border-radius:9px;font-weight:600;color:var(--mute)}
+.tabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.week{color:var(--mute);margin:8px 0 0;font-size:.95rem}
+.job{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.job-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.job-h h3{margin:0;font-size:1.1rem}
+.when{color:var(--mute);font-size:.9rem;margin:2px 0 0}
+.pill{font-size:.82rem;font-weight:600;padding:3px 10px;border-radius:99px;white-space:nowrap;background:var(--idle);color:var(--mute)}
+.pill.prog{background:var(--warnbg);color:var(--warn)}
+.pill.done{background:var(--okbg);color:var(--ok)}
+.meter{height:6px;border-radius:9px;background:var(--idle);margin:12px 0 6px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--ok);width:0;transition:width .25s}
+ul.chk{list-style:none;margin:0;padding:0}
+.chk label{display:flex;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);cursor:pointer}
+.chk input{width:22px;height:22px;accent-color:var(--ok);flex:none}
+.chk input:checked+span{color:var(--mute);text-decoration:line-through}
+.off{background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:18px;color:var(--mute)}
+.other{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+.other-h{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.other-h b{font-size:1.02rem}
+.other-h .dot{width:30px;height:30px;font-size:.85rem}
+.row{display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:4px 0}
+.note{color:var(--mute);font-size:.9rem;margin:2px 0 0}
+</style>
+</head>
+<body>
+<main id="app"></main>
+
+<script>
+/* ============ EDIT THIS SECTION ============ */
+
+// Monday that is "Week 1" of the rotation (YYYY-MM-DD, Sydney time).
+const WEEK1_START = "2026-10-12";
+const TIMEZONE = "Australia/Sydney";
+
+const PEOPLE = {
+  Emily:  { color: "#0f766e" },
+  Ella:   { color: "#7c4dbd" },
+  Daniel: { color: "#2563b0" }
+};
+
+// Checklists: add, remove or rename items freely.
+const JOBS = {
+  bathroom: { name: "Bathroom", when: "",
+    items: ["Mop", "Vacuum", "Clean shower", "Clean sink", "Clean counter"] },
+  toilet: { name: "Toilet + landing", when: "",
+    items: ["Vacuum", "Mop", "Wipe toilet", "Clean sink"] },
+  downstairs: { name: "Downstairs", when: "",
+    items: ["Kitchen benches", "Oven top", "Table", "Vacuum", "Vacuum stairs"] },
+  downstairs_mop: { name: "Downstairs + mop", when: "",
+    items: ["Kitchen benches", "Oven top", "Table", "Vacuum", "Vacuum stairs", "Mop"] },
+  bins: { name: "Bins", when: "Tuesday night",
+    items: ["Take bins to the kerb", "Bring bins back in"] }
+};
+
+// 6-week rotation. Each week lists the jobs per person ([] = day off).
+const ROTATION = [
+  { Emily: ["bathroom"],        Ella: ["downstairs"],        Daniel: ["toilet", "bins"] },
+  { Emily: ["downstairs_mop"],  Ella: ["bins"],              Daniel: [] },
+  { Emily: ["toilet", "bins"],  Ella: ["bathroom"],          Daniel: ["downstairs"] },
+  { Emily: [],                  Ella: ["downstairs_mop"],    Daniel: ["bins"] },
+  { Emily: ["downstairs"],      Ella: ["toilet", "bins"],    Daniel: ["bathroom"] },
+  { Emily: ["bins"],            Ella: [],                    Daniel: ["downstairs_mop"] }
+];
+
+// Status shown for OTHER people (edit by hand). One entry per job key.
+// status: "Not started" | "In progress" | "Done"
+const OTHER_STATUS = {
+  Emily:  { bathroom: ["Done", "Lorem ipsum dolor sit amet."],
+            downstairs: ["In progress", "Consectetur adipiscing elit."],
+            downstairs_mop: ["Not started", "Sed do eiusmod tempor."],
+            toilet: ["In progress", "Ut enim ad minim veniam."],
+            bins: ["Not started", "Duis aute irure dolor."] },
+  Ella:   { bathroom: ["In progress", "Lorem ipsum dolor sit amet."],
+            downstairs: ["Done", "Consectetur adipiscing elit."],
+            downstairs_mop: ["Not started", "Sed do eiusmod tempor."],
+            toilet: ["Not started", "Ut enim ad minim veniam."],
+            bins: ["Done", "Duis aute irure dolor."] },
+  Daniel: { bathroom: ["Not started", "Lorem ipsum dolor sit amet."],
+            downstairs: ["In progress", "Consectetur adipiscing elit."],
+            downstairs_mop: ["Done", "Sed do eiusmod tempor."],
+            toilet: ["Done", "Ut enim ad minim veniam."],
+            bins: ["In progress", "Duis aute irure dolor."] }
+};
+
+/* ============ END EDIT SECTION ============ */
+
+const DAY = 864e5;
+const $app = document.getElementById("app");
+let user = safeGet("rota:user");
+let view = "this";
+
+function safeGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function safeSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+
+// Today's calendar date in Sydney, as a UTC-midnight timestamp (avoids DST problems).
+function sydneyToday(){
+  const p = new Intl.DateTimeFormat("en-CA",{timeZone:TIMEZONE,year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+  return Date.parse(p + "T00:00:00Z");
+}
+function weekInfo(offset){
+  const start = Date.parse(WEEK1_START + "T00:00:00Z");
+  const today = sydneyToday();
+  const dow = (new Date(today).getUTCDay() + 6) % 7;      // Monday = 0
+  const monday = today - dow * DAY + offset * 7 * DAY;
+  const n = Math.floor((monday - start) / (7 * DAY));
+  const idx = ((n % ROTATION.length) + ROTATION.length) % ROTATION.length;
+  return { monday, idx, key: new Date(monday).toISOString().slice(0,10) };
+}
+function fmt(ts){ return new Date(ts).toLocaleDateString("en-AU",{timeZone:"UTC",day:"numeric",month:"short"}); }
+
+function loadChecks(){ try { return JSON.parse(safeGet("rota:checks")||"{}"); } catch(e){ return {}; } }
+function saveChecks(c){ safeSet("rota:checks", JSON.stringify(c)); }
+
+function pill(status){
+  const cls = status==="Done" ? "done" : status==="In progress" ? "prog" : "";
+  return `<span class="pill ${cls}">${status}</span>`;
+}
+function statusFor(count,total){ return count===0 ? "Not started" : count===total ? "Done" : "In progress"; }
+function initial(n){ return n[0]; }
+
+function renderPicker(){
+  $app.innerHTML = `<h1>Who are you?</h1><p class="sub">Pick your name to see your jobs for the week.</p>
+  <div class="picker">${Object.keys(PEOPLE).map(n =>
+    `<button class="who" data-user="${n}"><span class="dot" style="background:${PEOPLE[n].color}">${initial(n)}</span>${n}</button>`).join("")}</div>`;
+  $app.querySelectorAll("[data-user]").forEach(b => b.onclick = () => { user = b.dataset.user; safeSet("rota:user", user); view="this"; render(); });
+}
+
+function renderJob(jobKey, wk, checks){
+  const job = JOBS[jobKey];
+  const done = job.items.map((_,i) => !!checks[`${wk.key}|${user}|${jobKey}|${i}`]);
+  const count = done.filter(Boolean).length;
+  const pct = Math.round(count / job.items.length * 100);
+  return `<section class="job"><div class="job-h"><div><h3>${job.name}</h3>${job.when?`<p class="when">${job.when}</p>`:""}</div>${pill(statusFor(count,job.items.length))}</div>
+  <div class="meter" aria-hidden="true"><i style="width:${pct}%"></i></div>
+  <ul class="chk">${job.items.map((t,i)=>`<li><label><input type="checkbox" data-k="${wk.key}|${user}|${jobKey}|${i}" ${done[i]?"checked":""}><span>${t}</span></label></li>`).join("")}</ul></section>`;
+}
+
+function renderOthers(wk, isCurrent){
+  return Object.keys(PEOPLE).filter(n => n!==user).map(n => {
+    const jobs = ROTATION[wk.idx][n];
+    const rows = jobs.length ? jobs.map(j => {
+      const s = (OTHER_STATUS[n] && OTHER_STATUS[n][j]) || ["Not started",""];
+      return `<div><div class="row"><span>${JOBS[j].name}</span>${isCurrent ? pill(s[0]) : ""}</div>${isCurrent && s[1] ? `<p class="note">${s[1]}</p>`:""}</div>`;
+    }).join("") : `<p class="note">Day off</p>`;
+    return `<div class="other"><div class="other-h"><span class="dot" style="background:${PEOPLE[n].color}">${initial(n)}</span><b>${n}</b></div>${rows}</div>`;
+  }).join("");
+}
+
+function render(){
+  if (!user || !PEOPLE[user]) return renderPicker();
+  const isCurrent = view === "this";
+  const wk = weekInfo(isCurrent ? 0 : 1);
+  const checks = loadChecks();
+  const mine = ROTATION[wk.idx][user];
+  $app.innerHTML = `
+  <div class="bar"><h1>Hi ${user}</h1><button class="link" id="switch">Switch user</button></div>
+  <div class="tabs" role="tablist">
+    <button role="tab" id="t-this" aria-selected="${isCurrent}">This week</button>
+    <button role="tab" id="t-next" aria-selected="${!isCurrent}">Next week</button>
+  </div>
+  <p class="week">Week ${wk.idx+1} of ${ROTATION.length}, ${fmt(wk.monday)} to ${fmt(wk.monday+6*DAY)}</p>
+  <h2>Your jobs</h2>
+  ${mine.length ? mine.map(j => renderJob(j, wk, checks)).join("") : `<div class="off">No jobs this week. Enjoy the day off.</div>`}
+  <h2>Everyone else</h2>
+  ${renderOthers(wk, isCurrent)}`;
+  document.getElementById("switch").onclick = () => { user=null; try{localStorage.removeItem("rota:user");}catch(e){} render(); };
+  document.getElementById("t-this").onclick = () => { view="this"; render(); };
+  document.getElementById("t-next").onclick = () => { view="next"; render(); };
+  $app.querySelectorAll("input[data-k]").forEach(cb => cb.onchange = () => {
+    const c = loadChecks(); if (cb.checked) c[cb.dataset.k]=1; else delete c[cb.dataset.k]; saveChecks(c); render();
+  });
+}
+
+render();
+// Roll over to the new week automatically if the page is left open past Monday 12am Sydney time.
+setInterval(() => { const k = weekInfo(0).key; if (window.__wk && window.__wk !== k) render(); window.__wk = k; }, 60000);
+window.__wk = weekInfo(0).key;
+</script>
+</body>
+</html>
